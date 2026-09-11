@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-and-import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install ruff
+
+      - name: Lint
+        run: ruff check podcast_gen
+
+      - name: Import check
+        # Verifies every module wires up correctly (dependency imports,
+        # Pipecat/PyAudio/Whisper module-level imports) without needing real
+        # audio hardware or downloading the multi-GB Kokoro/Whisper model
+        # weights, which only happen lazily on first actual use.
+        run: |
+          python -c "
+          import podcast_gen.sources
+          import podcast_gen.script_gen
+          import podcast_gen.mix
+          import podcast_gen.kokoro_tts_service
+          import podcast_gen.tts_render
+          import podcast_gen.cli
+          import podcast_gen.live
+          import podcast_gen.interactive_episode
+          import podcast_gen.cli_live
+          import podcast_gen.cli_interactive
+          print('All modules imported successfully')
+          "

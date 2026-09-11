@@ -17,6 +17,7 @@ import asyncio
 import os
 import threading
 
+from loguru import logger
 from pipecat.frames.frames import (
     EndFrame,
     ErrorFrame,
@@ -32,14 +33,19 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.anthropic.llm import AnthropicLLMService
 from pipecat.services.llm_service import LLMService
 from pipecat.services.ollama.llm import OLLamaLLMService
 from pipecat.services.whisper.stt import Model as WhisperModel
 from pipecat.services.whisper.stt import WhisperSTTService
-from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+from pipecat.transports.local.audio import (
+    LocalAudioTransport,
+    LocalAudioTransportParams,
+)
 
 from podcast_gen.kokoro_tts_service import KokoroTTSService
 
@@ -256,5 +262,5 @@ async def run_live_qa(
         # bound it so Ctrl+C always actually exits.
         try:
             await asyncio.wait_for(task.queue_frames([EndFrame()]), timeout=1.0)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 - shutdown must proceed regardless of what failed
+            logger.debug(f"Ignoring shutdown error: {e}")

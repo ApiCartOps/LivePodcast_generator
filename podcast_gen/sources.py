@@ -14,7 +14,7 @@ def load_source(source: str) -> str:
     """Detect the kind of `source` and return its plain-text content."""
     if _looks_like_confluence(source):
         return load_confluence(source)
-    if source.startswith("http://") or source.startswith("https://"):
+    if source.startswith(("http://", "https://")):
         return load_url(source)
     if Path(source).exists():
         return load_file(source)

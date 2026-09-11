@@ -13,7 +13,6 @@ from collections.abc import AsyncGenerator
 
 import numpy as np
 from loguru import logger
-
 from pipecat.frames.frames import ErrorFrame, Frame, TTSAudioRawFrame
 from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
@@ -22,7 +21,7 @@ KOKORO_SAMPLE_RATE = 24000
 
 # Kokoro loads its ~80M-parameter weights once per (lang_code) and is reused
 # by every service instance/line, so per-line instantiation stays cheap.
-_pipelines: dict[str, "object"] = {}
+_pipelines: dict[str, object] = {}
 
 
 def _get_kokoro_pipeline(lang_code: str):

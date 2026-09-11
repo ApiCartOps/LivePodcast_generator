@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 
 import pyaudio
-
+from loguru import logger
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -35,14 +35,26 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.whisper.stt import Model as WhisperModel
 from pipecat.services.whisper.stt import WhisperSTTService
-from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+from pipecat.transports.local.audio import (
+    LocalAudioTransport,
+    LocalAudioTransportParams,
+)
 
 from podcast_gen.kokoro_tts_service import KokoroTTSService
-from podcast_gen.live import OLLAMA_MODEL, AnswerEcho, ErrorEcho, PushToTalkGate, TranscriptEcho, _build_llm
+from podcast_gen.live import (
+    OLLAMA_MODEL,
+    AnswerEcho,
+    ErrorEcho,
+    PushToTalkGate,
+    TranscriptEcho,
+    _build_llm,
+)
 from podcast_gen.script_gen import DialogueLine
 from podcast_gen.tts_render import RenderedLine, render_dialogue
 
@@ -259,5 +271,5 @@ async def run_interactive_episode(
         # of shutting down -- bound it so Ctrl+C always actually exits.
         try:
             await asyncio.wait_for(task.queue_frames([EndFrame()]), timeout=1.0)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 - shutdown must proceed regardless of what failed
+            logger.debug(f"Ignoring shutdown error: {e}")
