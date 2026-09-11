@@ -220,6 +220,12 @@ async def run_interactive_episode(
             _play_episode(rendered, pause_event, output_device_index),
         )
     except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        print("\n[Stopping...]")
     finally:
-        await task.queue_frames([EndFrame()])
+        # By this point runner.run(task) may already be interrupted/dead, so
+        # asking it to process one more frame can hang indefinitely instead
+        # of shutting down -- bound it so Ctrl+C always actually exits.
+        try:
+            await asyncio.wait_for(task.queue_frames([EndFrame()]), timeout=1.0)
+        except Exception:
+            pass

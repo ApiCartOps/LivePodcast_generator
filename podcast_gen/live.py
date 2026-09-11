@@ -249,6 +249,12 @@ async def run_live_qa(
     try:
         await runner.run(task)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        print("\n[Stopping...]")
     finally:
-        await task.queue_frames([EndFrame()])
+        # runner.run(task) may already be interrupted/dead here, so asking it
+        # to process one more frame can hang instead of shutting down --
+        # bound it so Ctrl+C always actually exits.
+        try:
+            await asyncio.wait_for(task.queue_frames([EndFrame()]), timeout=1.0)
+        except Exception:
+            pass
