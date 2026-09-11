@@ -54,8 +54,35 @@ Useful flags:
 - `--script-json script.json` — cache the generated dialogue; re-run with the
   same path to re-render audio (e.g. after tweaking voices) without calling
   Claude again. Pass `--regenerate-script` to force a fresh script.
+- `--llm-backend ollama --ollama-model llama3.1` — write the script with a
+  local [Ollama](https://ollama.com) model instead of Claude, so the whole
+  pipeline runs offline with no API key at all.
 
-## Interactive Q&A (like NotebookLM's "interactive mode")
+## Interactive episode (barge in on the actual podcast)
+
+`cli_interactive.py` is the closest match to NotebookLM's "interactive
+mode": it renders the episode like `cli.py`, plays it out loud, and lets you
+interrupt it — press Enter at any point, ask a question, and it pauses,
+answers over your mic/speakers (Whisper -> LLM -> Kokoro), then resumes
+playback right where it left off.
+
+```bash
+python -m podcast_gen.cli_interactive ./notes.pdf
+python -m podcast_gen.cli_interactive ./notes.pdf --llm-backend ollama --ollama-model llama3.1
+```
+
+Under the hood this runs two things side by side: the episode audio plays
+through a plain PyAudio output stream, while a live Pipecat Q&A pipeline
+(same shape as `cli_live.py`) listens for a keypress. An `asyncio.Event`
+connects them — a `PlaybackGate` processor sets it the instant you start
+talking (pausing episode playback) and clears it once the spoken answer
+finishes (resuming it).
+
+## Standalone live Q&A (no episode, just ask questions)
+
+If you don't want the episode played back at all — just a spoken
+conversation about the document — use `cli_live.py` instead. It's a real
+Pipecat pipeline running against your Mac's mic/speakers:
 
 Instead of a rendered MP3, `cli_live.py` starts a live, spoken conversation
 about the document: it's a real Pipecat pipeline running against your Mac's
@@ -77,7 +104,12 @@ background thread injects the `VADUserStartedSpeakingFrame` /
 `VADUserStoppedSpeakingFrame` markers that `WhisperSTTService` needs on
 keypress instead of running a VAD model, which keeps this piece simple and
 avoids depending on pipecat's newer (and still-evolving) turn-management
-subsystem. Everything runs locally except the Claude API call.
+subsystem. Everything runs locally except the Claude API call (skip that
+too with `--llm-backend ollama`).
+
+Both live modes print `[you said]: ...` / `[host]: ...` as they go, and
+support `--list-devices` / `--input-device-index` / `--output-device-index`
+if you need to point at a specific mic or output.
 
 ## Voices
 
