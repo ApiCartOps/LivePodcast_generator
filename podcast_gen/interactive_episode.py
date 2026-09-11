@@ -24,7 +24,7 @@ import asyncio
 
 import pyaudio
 
-from pipecat.frames.frames import EndFrame, Frame, TTSStoppedFrame
+from pipecat.frames.frames import EndFrame, Frame, LLMFullResponseEndFrame, TTSStoppedFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -55,18 +55,55 @@ SOURCE MATERIAL:
 
 class PlaybackGate(FrameProcessor):
     """Sits right after the Q&A pipeline's TTS. Clears `pause_event` once the
-    spoken answer has finished, resuming episode playback. (The event is set
-    directly from the keypress by `PushToTalkGate`, not from here — see the
-    module docstring for why.)"""
+    spoken answer has *fully* finished, resuming episode playback. (The event
+    is set directly from the keypress by `PushToTalkGate`, not from here —
+    see the module docstring for why.)
+
+    Pipecat's TTS services synthesize per sentence (`TextAggregationMode.
+    SENTENCE`, the default), so a multi-sentence answer produces one
+    TTSStartedFrame/TTSStoppedFrame pair *per sentence* — not one for the
+    whole answer. Clearing on the first TTSStoppedFrame (or even a simple
+    started/stopped tally) resumes the episode too early: there's no way to
+    know from outside the TTS service whether another sentence is still
+    queued up behind the one that just finished.
+
+    Instead, every TTSStoppedFrame (re)starts a short debounce timer; only
+    once that timer elapses with no further TTS activity — and the LLM has
+    actually finished generating text (LLMFullResponseEndFrame) — does this
+    resume playback. A burst of consecutive sentences keeps re-arming the
+    timer, so it only fires once the answer is genuinely done.
+    """
+
+    RESUME_DEBOUNCE_SECONDS = 0.6
 
     def __init__(self, pause_event: asyncio.Event):
         super().__init__()
         self._pause_event = pause_event
+        self._response_text_done = False
+        self._pending_resume_task: asyncio.Task | None = None
+
+    def _schedule_resume_check(self) -> None:
+        if self._pending_resume_task is not None:
+            self._pending_resume_task.cancel()
+        self._pending_resume_task = asyncio.create_task(self._resume_after_debounce())
+
+    async def _resume_after_debounce(self) -> None:
+        try:
+            await asyncio.sleep(self.RESUME_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        if self._response_text_done:
+            self._pause_event.clear()
+            self._response_text_done = False
+        self._pending_resume_task = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, TTSStoppedFrame):
-            self._pause_event.clear()
+        if isinstance(frame, LLMFullResponseEndFrame):
+            self._response_text_done = True
+            self._schedule_resume_check()
+        elif isinstance(frame, TTSStoppedFrame):
+            self._schedule_resume_check()
         await self.push_frame(frame, direction)
 
 
