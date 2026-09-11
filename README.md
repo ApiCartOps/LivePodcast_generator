@@ -3,6 +3,8 @@
 [![CI](https://github.com/ApiCartOps/LivePodcast_generator/actions/workflows/ci.yml/badge.svg)](https://github.com/ApiCartOps/LivePodcast_generator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+![LivePodcast Generator](.github/assets/social-preview.png)
+
 Turn a Confluence page, any web page, or a local file (`.txt`/`.md`/`.pdf`)
 into a two-host, NotebookLM-style podcast episode — and, unlike a plain
 "audio overview," actually talk to it: interrupt the episode mid-playback
