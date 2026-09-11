@@ -62,13 +62,24 @@ SOURCE MATERIAL:
 
 class PushToTalkGate(FrameProcessor):
     """Passes audio through untouched; a background thread injects VAD-shaped
-    start/stop frames on keypress so the STT service knows what to transcribe."""
+    start/stop frames on keypress so the STT service knows what to transcribe.
 
-    def __init__(self):
+    `pause_event`, if given, is set the instant the user starts talking and
+    is NOT cleared here — something downstream (e.g. episode playback) that
+    needs to know when it's safe to resume should clear it itself once the
+    answer has actually finished. It's set directly from this keypress, not
+    by watching the emitted frame arrive somewhere downstream: several
+    processors in a STT -> LLM -> TTS chain don't forward
+    VADUserStartedSpeakingFrame all the way through, so anything waiting on
+    it reaching the far end of the pipeline may never see it.
+    """
+
+    def __init__(self, pause_event: asyncio.Event | None = None):
         super().__init__()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._stop_requested = False
+        self._pause_event = pause_event
 
     async def setup(self, setup):
         await super().setup(setup)
@@ -86,6 +97,8 @@ class PushToTalkGate(FrameProcessor):
                 input("\nPress Enter, then ask your question (Ctrl+C to quit)... ")
             except EOFError:
                 break
+            if self._pause_event is not None and self._loop is not None:
+                self._loop.call_soon_threadsafe(self._pause_event.set)
             self._emit(VADUserStartedSpeakingFrame())
             print("Listening... press Enter again when you're done talking.")
             try:

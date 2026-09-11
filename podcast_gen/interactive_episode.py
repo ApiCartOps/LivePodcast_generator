@@ -9,10 +9,13 @@ Two things run side by side:
   listening for a keypress via `PushToTalkGate`, same as `live.py`;
 - a plain PyAudio playback loop for the pre-rendered episode lines.
 
-They're coordinated by a single `asyncio.Event`: `PlaybackGate` (inserted
-right after the Q&A pipeline's TTS) sets it the moment the listener starts
-talking (pausing episode playback) and clears it once the spoken answer has
-finished (resuming episode playback where it left off).
+They're coordinated by a single `asyncio.Event`. `PushToTalkGate` sets it the
+instant the listener presses Enter to start talking (pausing episode
+playback) — directly from the keypress, not by waiting for a frame to
+travel all the way through STT -> LLM -> TTS, since several processors in
+that chain don't forward `VADUserStartedSpeakingFrame` that far. `PlaybackGate`
+(inserted right after the Q&A pipeline's TTS, a single short hop away) clears
+it once the spoken answer has actually finished, resuming episode playback.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import asyncio
 
 import pyaudio
 
-from pipecat.frames.frames import EndFrame, Frame, TTSStoppedFrame, VADUserStartedSpeakingFrame
+from pipecat.frames.frames import EndFrame, Frame, TTSStoppedFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -51,9 +54,10 @@ SOURCE MATERIAL:
 
 
 class PlaybackGate(FrameProcessor):
-    """Sits right after the Q&A pipeline's TTS. Sets `pause_event` the moment
-    the listener starts talking (pausing episode playback) and clears it once
-    the spoken answer has finished (resuming episode playback)."""
+    """Sits right after the Q&A pipeline's TTS. Clears `pause_event` once the
+    spoken answer has finished, resuming episode playback. (The event is set
+    directly from the keypress by `PushToTalkGate`, not from here — see the
+    module docstring for why.)"""
 
     def __init__(self, pause_event: asyncio.Event):
         super().__init__()
@@ -61,9 +65,7 @@ class PlaybackGate(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, VADUserStartedSpeakingFrame):
-            self._pause_event.set()
-        elif isinstance(frame, TTSStoppedFrame):
+        if isinstance(frame, TTSStoppedFrame):
             self._pause_event.clear()
         await self.push_frame(frame, direction)
 
@@ -135,7 +137,7 @@ async def run_interactive_episode(
     )
 
     pause_event = asyncio.Event()
-    gate = PushToTalkGate()
+    gate = PushToTalkGate(pause_event=pause_event)
     error_echo = ErrorEcho()
     transcript_echo = TranscriptEcho()
     answer_echo = AnswerEcho()
