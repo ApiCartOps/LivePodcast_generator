@@ -1,0 +1,29 @@
+[project]
+name = "podcast-generator"
+version = "0.1.0"
+description = "Turn Confluence pages, web pages, or local docs into a two-host podcast MP3 using Claude + a local Pipecat/Kokoro TTS pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pipecat-ai>=1.8.1",
+    "kokoro>=0.9.4",
+    "soundfile>=0.12.1",
+    "numpy>=1.24.0",
+    "anthropic>=0.40.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "pypdf>=4.0.0",
+    "python-dotenv>=1.0.0",
+    "pyaudio>=0.2.14",
+    "faster-whisper>=1.0.0",
+    "importlib_resources>=6.0.0",
+]
+
+[project.optional-dependencies]
+# Only needed on Apple Silicon: pipecat's whisper module imports mlx_whisper
+# at module load time even when you only use the faster-whisper backend.
+mlx = ["mlx_whisper>=0.4.0"]
+
+[project.scripts]
+podcast-gen = "podcast_gen.cli:main"
+podcast-gen-live = "podcast_gen.cli_live:main"
