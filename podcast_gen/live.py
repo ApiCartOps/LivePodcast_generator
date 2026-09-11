@@ -21,10 +21,10 @@ from pipecat.frames.frames import (
     EndFrame,
     ErrorFrame,
     Frame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     TextFrame,
     TranscriptionFrame,
-    TTSStartedFrame,
-    TTSStoppedFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
@@ -128,17 +128,20 @@ class TranscriptEcho(FrameProcessor):
 
 
 class AnswerEcho(FrameProcessor):
-    """Passes frames through, printing the LLM's answer text as it streams
-    and a marker when Kokoro actually starts/stops producing audio for it —
-    useful for telling apart "nothing was said" from "audio didn't play"."""
+    """Passes frames through, printing the LLM's answer text as it streams.
+
+    Positioned between the LLM and TTS: that's where the plain-text response
+    is visible — TTS consumes it and emits audio frames instead, so a tap
+    placed after TTS never sees the text at all.
+    """
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, TTSStartedFrame):
+        if isinstance(frame, LLMFullResponseStartFrame):
             print("[host]: ", end="", flush=True)
         elif isinstance(frame, TextFrame):
             print(frame.text, end="", flush=True)
-        elif isinstance(frame, TTSStoppedFrame):
+        elif isinstance(frame, LLMFullResponseEndFrame):
             print()
         await self.push_frame(frame, direction)
 
