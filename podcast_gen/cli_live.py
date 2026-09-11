@@ -8,13 +8,17 @@ import sys
 
 from dotenv import load_dotenv
 
-from podcast_gen.live import run_live_qa
+from podcast_gen.live import list_audio_devices, run_live_qa
 from podcast_gen.sources import load_source
 
 
 def main() -> None:
     load_dotenv()
     args = _parse_args()
+
+    if args.list_devices:
+        list_audio_devices()
+        return
 
     print(f"Loading content from: {args.source}", file=sys.stderr)
     source_text = load_source(args.source)
@@ -27,6 +31,8 @@ def main() -> None:
             lang_code=args.lang_code,
             llm_backend=args.llm_backend,
             ollama_model=args.ollama_model,
+            input_device_index=args.input_device_index,
+            output_device_index=args.output_device_index,
         )
     )
 
@@ -38,7 +44,27 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "source",
-        help="Confluence page URL/ID, a web URL, or a path to a local .txt/.md/.pdf file.",
+        nargs="?",
+        help="Confluence page URL/ID, a web URL, or a path to a local .txt/.md/.pdf file. "
+        "Not needed with --list-devices.",
+    )
+    parser.add_argument(
+        "--list-devices",
+        action="store_true",
+        help="List available audio input/output devices and exit "
+        "(use this if you don't hear anything).",
+    )
+    parser.add_argument(
+        "--input-device-index",
+        type=int,
+        default=None,
+        help="PyAudio device index to record from (see --list-devices). Defaults to the system default mic.",
+    )
+    parser.add_argument(
+        "--output-device-index",
+        type=int,
+        default=None,
+        help="PyAudio device index to play answers through (see --list-devices). Defaults to the system default output.",
     )
     parser.add_argument(
         "--voice",
@@ -62,7 +88,10 @@ def _parse_args() -> argparse.Namespace:
         default="llama3.1",
         help="Ollama model name to use when --llm-backend=ollama (default: llama3.1).",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if not args.list_devices and not args.source:
+        parser.error("source is required unless --list-devices is given")
+    return args
 
 
 if __name__ == "__main__":

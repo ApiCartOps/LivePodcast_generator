@@ -17,7 +17,17 @@ import asyncio
 import os
 import threading
 
-from pipecat.frames.frames import EndFrame, Frame, VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame
+from pipecat.frames.frames import (
+    EndFrame,
+    ErrorFrame,
+    Frame,
+    TextFrame,
+    TranscriptionFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -96,6 +106,67 @@ class PushToTalkGate(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+class ErrorEcho(FrameProcessor):
+    """Passes frames through, printing any ErrorFrame that shows up anywhere
+    in the pipeline — otherwise a failed STT/LLM/TTS call fails silently."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, ErrorFrame):
+            print(f"[error]: {frame.error}")
+        await self.push_frame(frame, direction)
+
+
+class TranscriptEcho(FrameProcessor):
+    """Passes frames through, printing what Whisper heard (for debugging)."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TranscriptionFrame):
+            print(f"[you said]: {frame.text}")
+        await self.push_frame(frame, direction)
+
+
+class AnswerEcho(FrameProcessor):
+    """Passes frames through, printing the LLM's answer text as it streams
+    and a marker when Kokoro actually starts/stops producing audio for it —
+    useful for telling apart "nothing was said" from "audio didn't play"."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TTSStartedFrame):
+            print("[host]: ", end="", flush=True)
+        elif isinstance(frame, TextFrame):
+            print(frame.text, end="", flush=True)
+        elif isinstance(frame, TTSStoppedFrame):
+            print()
+        await self.push_frame(frame, direction)
+
+
+def list_audio_devices() -> None:
+    """Print available PyAudio input/output devices and which ones are default."""
+    import pyaudio
+
+    pa = pyaudio.PyAudio()
+    try:
+        default_in = pa.get_default_input_device_info()["index"]
+        default_out = pa.get_default_output_device_info()["index"]
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            tags = []
+            if i == default_in:
+                tags.append("default input")
+            if i == default_out:
+                tags.append("default output")
+            tag_str = f" ({', '.join(tags)})" if tags else ""
+            print(
+                f"[{i}] {info['name']} — in:{info['maxInputChannels']} "
+                f"out:{info['maxOutputChannels']} @ {int(info['defaultSampleRate'])}Hz{tag_str}"
+            )
+    finally:
+        pa.terminate()
+
+
 def _build_llm(llm_backend: str, ollama_model: str) -> LLMService:
     if llm_backend == "anthropic":
         return AnthropicLLMService(
@@ -115,6 +186,8 @@ async def run_live_qa(
     whisper_model: WhisperModel = WhisperModel.BASE,
     llm_backend: str = "anthropic",
     ollama_model: str = OLLAMA_MODEL,
+    input_device_index: int | None = None,
+    output_device_index: int | None = None,
 ) -> None:
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(source_text=source_text)
     context = LLMContext(messages=[{"role": "system", "content": system_prompt}])
@@ -124,17 +197,28 @@ async def run_live_qa(
     stt = WhisperSTTService(settings=WhisperSTTService.Settings(model=whisper_model))
     tts = KokoroTTSService(voice=voice, lang_code=lang_code)
     transport = LocalAudioTransport(
-        LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
+        LocalAudioTransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            input_device_index=input_device_index,
+            output_device_index=output_device_index,
+        )
     )
     gate = PushToTalkGate()
+    transcript_echo = TranscriptEcho()
+    answer_echo = AnswerEcho()
+    error_echo = ErrorEcho()
 
     pipeline = Pipeline(
         [
             transport.input(),
             gate,
+            error_echo,
             stt,
+            transcript_echo,
             context_aggregator.user(),
             llm,
+            answer_echo,
             tts,
             transport.output(),
             context_aggregator.assistant(),
@@ -144,6 +228,7 @@ async def run_live_qa(
     runner = PipelineRunner()
 
     print("Ready. Speak into your mic; answers play back through your speakers.")
+    print("(Run with --list-devices if you don't hear anything, to check the output device.)")
     try:
         await runner.run(task)
     except (KeyboardInterrupt, asyncio.CancelledError):
