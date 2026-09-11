@@ -24,7 +24,13 @@ import asyncio
 
 import pyaudio
 
-from pipecat.frames.frames import EndFrame, Frame, LLMFullResponseEndFrame, TTSStoppedFrame
+from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    EndFrame,
+    Frame,
+    LLMFullResponseEndFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
@@ -55,23 +61,40 @@ SOURCE MATERIAL:
 
 class PlaybackGate(FrameProcessor):
     """Sits right after the Q&A pipeline's TTS. Clears `pause_event` once the
-    spoken answer has *fully* finished, resuming episode playback. (The event
-    is set directly from the keypress by `PushToTalkGate`, not from here —
-    see the module docstring for why.)
+    spoken answer has *actually finished playing* through the speaker,
+    resuming episode playback. (The event is set directly from the keypress
+    by `PushToTalkGate`, not from here — see the module docstring for why.)
 
-    Pipecat's TTS services synthesize per sentence (`TextAggregationMode.
-    SENTENCE`, the default), so a multi-sentence answer produces one
-    TTSStartedFrame/TTSStoppedFrame pair *per sentence* — not one for the
-    whole answer. Clearing on the first TTSStoppedFrame (or even a simple
-    started/stopped tally) resumes the episode too early: there's no way to
-    know from outside the TTS service whether another sentence is still
-    queued up behind the one that just finished.
+    This watches `BotStoppedSpeakingFrame`, not `TTSStoppedFrame`.
+    `TTSStoppedFrame` fires the instant Kokoro finishes *generating* the
+    audio bytes for a sentence — which happens much faster than the audio
+    actually takes to play out loud, so resuming on it overlapped the
+    episode with audio still queued for playback.
+    `BotStoppedSpeakingFrame` is emitted by the transport's own output-audio
+    queue (`BaseOutputTransport`), which processes frames strictly in order
+    and blocks on each real write — so by the time it reaches a
+    TTSStoppedFrame in that queue, every preceding audio chunk has actually
+    been written (and thus effectively played), not just generated. It's
+    also pushed upstream, which is how it reaches this processor even though
+    it originates downstream, in `transport.output()`.
 
-    Instead, every TTSStoppedFrame (re)starts a short debounce timer; only
-    once that timer elapses with no further TTS activity — and the LLM has
-    actually finished generating text (LLMFullResponseEndFrame) — does this
-    resume playback. A burst of consecutive sentences keeps re-arming the
-    timer, so it only fires once the answer is genuinely done.
+    Pipecat's TTS services also synthesize per sentence
+    (`TextAggregationMode.SENTENCE`, the default), so a multi-sentence
+    answer still produces one BotStoppedSpeakingFrame per sentence, not one
+    for the whole answer — clearing on the first one would resume after just
+    that sentence. So every BotStoppedSpeakingFrame (re)starts a short
+    debounce timer; only once that timer elapses with no further bot speech
+    — and the LLM has actually finished generating text
+    (LLMFullResponseEndFrame) — does this resume playback.
+
+    Crucially, the debounce is armed *only* by BotStoppedSpeakingFrame, never
+    by LLMFullResponseEndFrame alone. An LLM can finish generating all of its
+    text almost instantly, well before Kokoro has synthesized (let alone
+    actually played) even the first sentence -- arming the timer right then
+    would let it elapse, and resume, before any real audio had finished, the
+    same bug relocated. LLMFullResponseEndFrame only records that the text
+    side is done; the timer itself only ever starts from real playback
+    events.
     """
 
     RESUME_DEBOUNCE_SECONDS = 0.6
@@ -80,6 +103,7 @@ class PlaybackGate(FrameProcessor):
         super().__init__()
         self._pause_event = pause_event
         self._response_text_done = False
+        self._bot_has_spoken = False
         self._pending_resume_task: asyncio.Task | None = None
 
     def _schedule_resume_check(self) -> None:
@@ -91,12 +115,16 @@ class PlaybackGate(FrameProcessor):
         try:
             await asyncio.sleep(self.RESUME_DEBOUNCE_SECONDS)
         except asyncio.CancelledError:
-            print("[trace] debounce timer cancelled (more TTS activity arrived)")
+            print("[trace] debounce timer cancelled (more bot speech arrived)")
             return
-        print(f"[trace] debounce elapsed, response_text_done={self._response_text_done}")
-        if self._response_text_done:
+        print(
+            f"[trace] debounce elapsed, response_text_done={self._response_text_done}, "
+            f"bot_has_spoken={self._bot_has_spoken}"
+        )
+        if self._response_text_done and self._bot_has_spoken:
             self._pause_event.clear()
             self._response_text_done = False
+            self._bot_has_spoken = False
             print("[trace] pause_event CLEARED -> resuming episode playback")
         self._pending_resume_task = None
 
@@ -105,9 +133,13 @@ class PlaybackGate(FrameProcessor):
         if isinstance(frame, LLMFullResponseEndFrame):
             print("[trace] LLMFullResponseEndFrame seen")
             self._response_text_done = True
-            self._schedule_resume_check()
-        elif isinstance(frame, TTSStoppedFrame):
-            print("[trace] TTSStoppedFrame seen, (re)arming debounce")
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            if self._pending_resume_task is not None:
+                print("[trace] BotStartedSpeakingFrame seen, cancelling any pending resume")
+                self._pending_resume_task.cancel()
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            print("[trace] BotStoppedSpeakingFrame seen, (re)arming debounce")
+            self._bot_has_spoken = True
             self._schedule_resume_check()
         await self.push_frame(frame, direction)
 
