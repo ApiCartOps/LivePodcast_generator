@@ -91,18 +91,23 @@ class PlaybackGate(FrameProcessor):
         try:
             await asyncio.sleep(self.RESUME_DEBOUNCE_SECONDS)
         except asyncio.CancelledError:
+            print("[trace] debounce timer cancelled (more TTS activity arrived)")
             return
+        print(f"[trace] debounce elapsed, response_text_done={self._response_text_done}")
         if self._response_text_done:
             self._pause_event.clear()
             self._response_text_done = False
+            print("[trace] pause_event CLEARED -> resuming episode playback")
         self._pending_resume_task = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, LLMFullResponseEndFrame):
+            print("[trace] LLMFullResponseEndFrame seen")
             self._response_text_done = True
             self._schedule_resume_check()
         elif isinstance(frame, TTSStoppedFrame):
+            print("[trace] TTSStoppedFrame seen, (re)arming debounce")
             self._schedule_resume_check()
         await self.push_frame(frame, direction)
 
@@ -120,6 +125,10 @@ async def _play_episode(
         output=True,
         output_device_index=output_device_index,
     )
+    device_info = pa.get_device_info_by_index(
+        output_device_index if output_device_index is not None else pa.get_default_output_device_info()["index"]
+    )
+    print(f"[trace] episode playback opened on device: {device_info['name']} @ {lines[0].sample_rate}Hz")
     loop = asyncio.get_running_loop()
     chunk_bytes = int(lines[0].sample_rate / 50) * 2  # 20ms of 16-bit mono
 
@@ -128,8 +137,11 @@ async def _play_episode(
             print(f"\n[{line.speaker}]: {line.text}")
             pos = 0
             while pos < len(line.audio):
-                while pause_event.is_set():
-                    await asyncio.sleep(0.05)
+                if pause_event.is_set():
+                    print("[trace] episode playback PAUSED")
+                    while pause_event.is_set():
+                        await asyncio.sleep(0.05)
+                    print("[trace] episode playback RESUMING")
                 chunk = line.audio[pos : pos + chunk_bytes]
                 await loop.run_in_executor(None, stream.write, chunk)
                 pos += chunk_bytes

@@ -98,6 +98,7 @@ class PushToTalkGate(FrameProcessor):
             except EOFError:
                 break
             if self._pause_event is not None and self._loop is not None:
+                print("[trace] keypress -> scheduling pause_event.set()")
                 self._loop.call_soon_threadsafe(self._pause_event.set)
             self._emit(VADUserStartedSpeakingFrame())
             print("Listening... press Enter again when you're done talking.")
