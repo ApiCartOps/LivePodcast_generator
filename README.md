@@ -34,7 +34,7 @@ local.
 - [Installation](#installation)
 - [LLM backends](#llm-backends)
 - [Usage](#usage)
-- [Voices](#voices)
+- [Multi-guest panels](#multi-guest-panels)
 - [Troubleshooting](#troubleshooting)
 - [Dependencies](#dependencies)
 - [License](#license)
@@ -44,8 +44,9 @@ local.
 1. **Load** the source (`podcast_gen/sources.py`): Confluence REST API, a
    generic URL (scraped with BeautifulSoup), or a local file.
 2. **Script** (`podcast_gen/script_gen.py`): an LLM (Claude or a local Ollama
-   model) turns the text into a JSON dialogue between two hosts, `HOST_A`
-   and `HOST_B`.
+   model) turns the text into a JSON dialogue for a panel: one `HOST` plus
+   `--guests` guests (`GUEST_1`, `GUEST_2`, ...), each optionally given a
+   display name — see [Multi-guest panels](#multi-guest-panels).
 3. **Render** (`podcast_gen/kokoro_tts_service.py`, `tts_render.py`): each
    line runs through a genuine Pipecat `TTSService` subclass backed by
    Kokoro (same shape as Pipecat's built-in Piper/ElevenLabs/Cartesia
@@ -143,7 +144,9 @@ python -m podcast_gen.cli sample_doc.md -o episode.mp3 --llm-backend ollama --ol
 Flags: `--minutes N` (target length), `--topic "..."` (steer focus),
 `--script-json script.json` (cache the script; re-run with the same path to
 re-render audio without calling the LLM again — pass `--regenerate-script`
-to force a fresh one), `--llm-backend`/`--ollama-model` (see above).
+to force a fresh one), `--llm-backend`/`--ollama-model` (see above),
+`--guests`/`--guest-names`/`--voices` (see
+[Multi-guest panels](#multi-guest-panels)).
 
 ### Interactive episode (barge in on the podcast)
 
@@ -175,14 +178,47 @@ The Whisper model size (`WhisperModel.BASE` by default — small and fast) is
 currently a code-level default in `live.py`/`interactive_episode.py` rather
 than a CLI flag; edit `whisper_model=` there for a larger/more accurate model.
 
-## Voices
+## Multi-guest panels
 
-Default voice map (`DEFAULT_VOICE_MAP` in `cli.py`/`cli_interactive.py`):
-`HOST_A` = `af_heart`, `HOST_B` = `am_michael`. Kokoro ships many more
-built-in voices — see the
-[voices list](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md).
+Both `cli.py` and `cli_interactive.py` build a panel of one `HOST` plus one
+or more guests (`podcast_gen/participants.py`), rather than a fixed pair of
+hosts. By default there's 1 guest (a two-person conversation, same as
+before); raise it for a panel discussion:
+
+```bash
+# Three-person panel, guests given real names
+python -m podcast_gen.cli sample_doc.md --guests 2 --guest-names "Priya,Marcus" \
+  --llm-backend ollama --ollama-model llama3.1
+
+# Pin specific voices: host first, then each guest in order
+python -m podcast_gen.cli sample_doc.md --guests 2 --guest-names "Priya,Marcus" \
+  --voices "af_heart,bf_emma,am_adam"
+```
+
+- `--guests N` — number of guests besides the host (default: 1).
+- `--guest-names "Name1,Name2,..."` — display names used in the dialogue
+  text itself (must match `--guests` in count). Defaults to "Guest 1",
+  "Guest 2", etc.
+- `--voices "host,guest1,guest2,..."` — Kokoro voice ids, host first (must
+  have exactly `--guests + 1` entries). Defaults to `af_heart` for the host
+  and a rotation of distinct voices (`am_michael`, `bf_emma`, `af_nova`,
+  `bm_george`, `am_adam`, `bf_alice`, cycling if you have more guests than
+  that) — see `DEFAULT_GUEST_VOICE_ROTATION` in `participants.py`. Kokoro
+  ships many more voices — see the
+  [voices list](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md).
+
+The host is instructed to bring every guest into the conversation at least
+once — it's a panel, not one long back-and-forth with a single guest. In
+the interactive episode, the host's voice also answers your interruptions.
+
 Non-English content needs a different `--lang-code` / `lang_code=...`
-matching Kokoro's supported language codes.
+matching Kokoro's supported language codes (applies to every voice in the
+panel).
+
+> **Note:** speaker labels changed from the fixed `HOST_A`/`HOST_B` to
+> `HOST`/`GUEST_1`/`GUEST_2`/... to support an arbitrary number of guests.
+> A `--script-json` file saved before this change won't load correctly —
+> regenerate it with `--regenerate-script`.
 
 ## Troubleshooting
 

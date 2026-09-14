@@ -59,8 +59,9 @@ from podcast_gen.script_gen import DialogueLine
 from podcast_gen.tts_render import RenderedLine, render_dialogue
 
 QA_SYSTEM_PROMPT_TEMPLATE = """\
-You are a guest expert being interrupted live during a two-host podcast \
-episode. The listener has paused the episode to ask you something, out loud.
+You are the host of this podcast episode, stepping out of the recorded \
+conversation for a moment because the listener paused it to ask you \
+something, out loud.
 
 Answer conversationally and concisely: 2-4 short spoken sentences, no lists, \
 no markdown, no headers. If something isn't covered by the material, say so \
@@ -219,7 +220,7 @@ async def run_interactive_episode(
 
     llm = _build_llm(llm_backend, ollama_model)
     stt = WhisperSTTService(settings=WhisperSTTService.Settings(model=whisper_model))
-    tts = KokoroTTSService(voice=voice_map.get("HOST_A", "af_heart"), lang_code=lang_code)
+    tts = KokoroTTSService(voice=voice_map.get("HOST", "af_heart"), lang_code=lang_code)
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
