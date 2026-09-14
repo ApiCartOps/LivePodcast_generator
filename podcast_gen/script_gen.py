@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import anthropic
 import requests
+from loguru import logger
 
 from podcast_gen.participants import Participant
 
@@ -54,6 +55,11 @@ introduces each guest by name. Close with a brief wrap-up thanking everyone.
 asides. No bullet points, headers, or markdown — this is spoken audio.
 - Do not invent facts that aren't supported by the source material.
 - Keep it tight: prioritize the most important points over exhaustive coverage.
+- IMPORTANT: each line's "speaker" field must be exactly one of these literal \
+values: {speaker_values} — use the participant's key (e.g. "{host.speaker_key}"), \
+never their display name (e.g. not "{guests[0].display_name if guests else host.display_name}"). \
+The display names are only for how the participants address each other \
+out loud in "text", not for the "speaker" field.
 
 Output ONLY a JSON object, no other text, no markdown fences, of the form:
 {{"lines": [{{"speaker": {speaker_values}, "text": "..."}}, ...]}}
@@ -92,7 +98,35 @@ def generate_dialogue(
         raise ValueError(f"Unknown backend: {backend!r} (expected 'anthropic' or 'ollama')")
 
     data = json.loads(_strip_code_fence(raw))
-    return [DialogueLine(speaker=item["speaker"], text=item["text"]) for item in data["lines"]]
+    return [
+        DialogueLine(speaker=_normalize_speaker(item["speaker"], participants), text=item["text"])
+        for item in data["lines"]
+    ]
+
+
+def _normalize_speaker(raw_speaker: str, participants: list[Participant]) -> str:
+    """Map whatever the LLM wrote in "speaker" back to a real speaker_key.
+
+    Local models in particular sometimes ignore the exact key and write a
+    guest's display name instead (e.g. "PRIYA" instead of "GUEST_1") --
+    left unnormalized, that speaker has no entry in the voice map and
+    rendering fails outright.
+    """
+    by_key = {p.speaker_key.casefold(): p.speaker_key for p in participants}
+    by_name = {p.display_name.casefold(): p.speaker_key for p in participants}
+
+    key = raw_speaker.strip().casefold()
+    if key in by_key:
+        return by_key[key]
+    if key in by_name:
+        return by_name[key]
+
+    logger.warning(
+        f"Unrecognized speaker {raw_speaker!r} in generated script "
+        f"(expected one of {[p.speaker_key for p in participants]} or a guest's "
+        f"display name); defaulting to the host."
+    )
+    return participants[0].speaker_key
 
 
 def _generate_with_anthropic(system_prompt: str, user_prompt: str) -> str:

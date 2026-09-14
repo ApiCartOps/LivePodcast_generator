@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from loguru import logger
 from pipecat.frames.frames import EndFrame, Frame, TTSAudioRawFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -43,21 +44,43 @@ class _AudioCollector(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+MAX_RENDER_ATTEMPTS = 3
+
+
 async def render_line(line: DialogueLine, *, voice: str, lang_code: str = "a") -> RenderedLine:
-    """Run one dialogue line through a Pipecat pipeline and return its audio."""
-    service = KokoroTTSService(voice=voice, lang_code=lang_code)
-    sink = _AudioCollector()
-    pipeline = Pipeline([service, sink])
-    task = PipelineTask(pipeline)
+    """Run one dialogue line through a Pipecat pipeline and return its audio.
 
-    await task.queue_frames([TTSSpeakFrame(text=line.text), EndFrame()])
-    await PipelineRunner().run(task)
+    Occasionally a pipeline run comes back with zero audio for no apparent
+    reason (observed intermittently, not tied to any particular text —
+    re-running the exact same line normally succeeds), so a silent failure
+    is retried a few times rather than silently dropping that line from the
+    episode.
+    """
+    last_sample_rate = 24000
+    for attempt in range(1, MAX_RENDER_ATTEMPTS + 1):
+        service = KokoroTTSService(voice=voice, lang_code=lang_code)
+        sink = _AudioCollector()
+        pipeline = Pipeline([service, sink])
+        task = PipelineTask(pipeline)
 
-    return RenderedLine(
-        speaker=line.speaker,
-        text=line.text,
-        audio=b"".join(sink.chunks),
-        sample_rate=sink.sample_rate or 24000,
+        await task.queue_frames([TTSSpeakFrame(text=line.text), EndFrame()])
+        await PipelineRunner().run(task)
+
+        audio = b"".join(sink.chunks)
+        if sink.sample_rate:
+            last_sample_rate = sink.sample_rate
+        if audio:
+            return RenderedLine(
+                speaker=line.speaker, text=line.text, audio=audio, sample_rate=last_sample_rate
+            )
+        logger.warning(
+            f"Attempt {attempt}/{MAX_RENDER_ATTEMPTS}: no audio synthesized for "
+            f"{line.speaker} line {line.text[:60]!r}; retrying."
+        )
+
+    raise RuntimeError(
+        f"Failed to synthesize audio for {line.speaker} line {line.text[:60]!r} "
+        f"after {MAX_RENDER_ATTEMPTS} attempts."
     )
 
 
