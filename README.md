@@ -241,6 +241,20 @@ panel).
 - **Whisper mis-hears things** — the `BASE` model is small/fast; pass a
   larger `WhisperModel` (e.g. `SMALL`, `MEDIUM`) in code for better accuracy
   at the cost of latency.
+- **A local model's script uses the wrong speaker labels** — local models
+  (tested with Ollama's `llama3.1`) sometimes write a guest's display name
+  (e.g. `"PRIYA"`) as the JSON `speaker` field instead of the exact key
+  (`"GUEST_1"`), which would otherwise crash rendering with no matching
+  voice. `script_gen.py` now normalizes this automatically (matching
+  against display names too, case-insensitively, before falling back to
+  the host) — you shouldn't need to do anything, but it's why you may see
+  a `"Unrecognized speaker"` warning in the logs occasionally.
+- **A line is silently missing from the episode** — Kokoro/Pipecat can
+  intermittently return zero audio for a line with no clear pattern (not
+  tied to short text — the same line normally succeeds on retry).
+  `tts_render.py` retries synthesis up to 3 times on empty audio before
+  raising loudly, so this should now surface as an error rather than a
+  silently dropped line.
 
 ## Dependencies
 
