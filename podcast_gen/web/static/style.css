@@ -44,6 +44,8 @@ main {
 
 .panel h2 { margin-top: 0; }
 
+[hidden] { display: none !important; }
+
 .field-group, .field-row {
   display: flex;
   flex-direction: column;
