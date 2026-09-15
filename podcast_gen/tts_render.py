@@ -7,6 +7,7 @@ resulting TTSAudioRawFrame chunks, and an EndFrame closes out the task.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from loguru import logger
@@ -89,12 +90,21 @@ async def render_dialogue(
     *,
     voice_map: dict[str, str],
     lang_code: str = "a",
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[RenderedLine]:
-    """Render every line in order, keeping conversation order intact."""
+    """Render every line in order, keeping conversation order intact.
+
+    If given, `on_progress(completed, total)` is called synchronously right
+    after each line finishes rendering, so a caller (e.g. a web job status)
+    can report progress without needing its own hook into the render loop.
+    """
     rendered = []
+    total = len(lines)
     for line in lines:
         voice = voice_map.get(line.speaker)
         if voice is None:
             raise ValueError(f"No voice configured for speaker {line.speaker!r}")
         rendered.append(await render_line(line, voice=voice, lang_code=lang_code))
+        if on_progress is not None:
+            on_progress(len(rendered), total)
     return rendered

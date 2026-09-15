@@ -10,13 +10,19 @@ into a two-host, NotebookLM-style podcast episode — and, unlike a plain
 "audio overview," actually talk to it: interrupt the episode mid-playback
 with a spoken question and get a live spoken answer before it resumes.
 
-Three ways to use it:
+Four ways to use it:
 
 | Mode | What it does | Entry point |
 |---|---|---|
-| **Batch generator** | Renders a full episode to an MP3 file | `podcast_gen/cli.py` |
+| **Web control panel** | A browser UI to generate episodes and manage a library of past ones | `podcast_gen/cli_web.py` |
+| **Batch generator** | Renders a full episode to an MP3 file, from the command line | `podcast_gen/cli.py` |
 | **Interactive episode** | Plays the episode aloud; press Enter any time to interrupt with a spoken question, then it resumes | `podcast_gen/cli_interactive.py` |
 | **Standalone live Q&A** | No episode playback — just a live spoken conversation about the document | `podcast_gen/cli_live.py` |
+
+The web control panel and batch generator only need the base install — no
+mic/speaker hardware involved. The interactive episode and live Q&A modes
+need real local audio devices and the `live` extra (see
+[Installation](#installation)).
 
 Every voice is synthesized locally with the open-weight
 [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) model through a real
@@ -32,6 +38,7 @@ local.
 - [How it works](#how-it-works)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Web control panel](#web-control-panel)
 - [LLM backends](#llm-backends)
 - [Usage](#usage)
 - [Multi-guest panels](#multi-guest-panels)
@@ -52,48 +59,57 @@ local.
    Kokoro (same shape as Pipecat's built-in Piper/ElevenLabs/Cartesia
    services, just local instead of cloud/server-based).
 4. **Mix** (`podcast_gen/mix.py`): lines are concatenated in order with
-   short gaps and encoded to MP3 via `ffmpeg` — this is the batch generator
-   path (`cli.py`).
-5. **Interactive episode** (`podcast_gen/interactive_episode.py`): instead
+   short gaps and encoded to MP3 via `ffmpeg`.
+5. **Web control panel** (`podcast_gen/web/`): a FastAPI app wraps steps
+   1-4 as a trackable background job with progress reporting, plus a
+   filesystem-backed library of past episodes — see
+   [Web control panel](#web-control-panel).
+6. **Interactive episode** (`podcast_gen/interactive_episode.py`): instead
    of just muxing to a file, the rendered lines are played aloud through
    your speakers via PyAudio, while a second, live Pipecat pipeline (mic →
    Whisper STT → LLM → Kokoro TTS → speaker) listens for a keypress. Press
    Enter at any point and episode playback pauses immediately; ask your
    question, get a spoken answer, and playback resumes exactly where it
    left off.
-6. **Standalone live Q&A** (`podcast_gen/live.py`): the same live pipeline
+7. **Standalone live Q&A** (`podcast_gen/live.py`): the same live pipeline
    as above, without ever rendering/playing the episode — just a
    conversation about the source document.
 
 ## Prerequisites
 
-- **macOS** (uses PyAudio via PortAudio for local mic/speaker access; other
-  platforms would need adaptation).
 - **Python 3.12** specifically. Kokoro's dependency chain (`spacy`/`blis`)
   doesn't yet build cleanly on Python 3.14, and 3.12 is the version this was
   built and tested against.
-- **Homebrew** packages:
-  - `portaudio` — required for PyAudio (mic/speaker access).
-  - `ffmpeg` — required by the batch generator to encode the final MP3.
+- **`ffmpeg`** — required to encode the final MP3 (all modes). On macOS:
+  `brew install ffmpeg`; the Docker image installs it automatically.
 - One of:
   - An **Anthropic API key** (for Claude as the script-writing/Q&A LLM), or
-  - A locally running **[Ollama](https://ollama.com)** server with at least
-    one model pulled (for a fully offline, no-API-key setup).
+  - A reachable **[Ollama](https://ollama.com)** server with at least one
+    model pulled (for a fully offline, no-API-key setup) — see
+    [LLM backends](#llm-backends) for how the web UI/Docker deployment
+    points at it.
 - (Optional) A **Confluence Cloud API token**, only if you want to pull
   content directly from Confluence pages.
+- **Only for the interactive episode / live Q&A modes** (not the web
+  control panel or batch generator): macOS with `portaudio`
+  (`brew install portaudio`) for local mic/speaker access via PyAudio —
+  see the `live` extra below.
 
 ## Installation
 
 ```bash
-brew install portaudio ffmpeg
+brew install ffmpeg   # + portaudio if you also want the live/interactive modes
 
 python3.12 -m venv .venv
 source .venv/bin/activate
 
-# On Apple Silicon, also install the mlx extra (see note below):
-pip install -e ".[mlx]"
-# On Intel Macs:
+# Web control panel + batch generator (no mic/speaker hardware needed):
 pip install -e .
+
+# Add the interactive-episode / live Q&A CLI modes (needs local audio hardware):
+pip install -e ".[live]"
+# ...and on Apple Silicon, also add the mlx extra (see note below):
+pip install -e ".[live,mlx]"
 
 cp .env.example .env   # fill in ANTHROPIC_API_KEY and/or Confluence creds
 ```
@@ -101,17 +117,59 @@ cp .env.example .env   # fill in ANTHROPIC_API_KEY and/or Confluence creds
 > **Apple Silicon note:** Pipecat's Whisper module imports `mlx_whisper` at
 > load time even when you only use the faster-whisper (CPU) backend that
 > this project actually uses. The `mlx` extra installs it so the import
-> doesn't fail; it isn't otherwise used at runtime here.
+> doesn't fail; it isn't otherwise used at runtime here. Only relevant if
+> you're also installing `[live]`.
 
 First run of any command downloads the ~80M-parameter Kokoro weights
 (cached under `~/.cache/huggingface` afterward) and, for the live modes, the
 faster-whisper model you configure (`BASE` by default — small and fast).
 
+## Web control panel
+
+```bash
+podcast-gen-web                      # http://127.0.0.1:8000
+podcast-gen-web --host 0.0.0.0 --port 8080 --episodes-dir /data/episodes
+```
+
+Open the URL in a browser: paste text, a URL, or upload a `.txt`/`.md`/`.pdf`
+file, configure the panel (guests, names, voices, LLM backend), and click
+Generate. A progress bar tracks the job (`queued → loading_source →
+writing_script → rendering → mixing → done`) via `GET /api/jobs/{id}`
+polling; finished episodes show up in the Library section with an inline
+player, a download link, and delete.
+
+Config (flags or environment variables, flags win): `--host`/
+`PODCAST_GEN_HOST` (default `127.0.0.1`), `--port`/`PODCAST_GEN_PORT`
+(default `8000`), `--episodes-dir`/`PODCAST_GEN_EPISODES_DIR` (default
+`./episodes`), `--ollama-base-url`/`OLLAMA_BASE_URL` (default
+`http://localhost:11434` — override this if Ollama runs on a different
+machine than the web app, e.g. in a deployed setup).
+
+**Deploying with Docker:**
+
+```bash
+docker build -t livepodcast-generator .
+docker run -p 8000:8000 -v $(pwd)/episodes:/data/episodes \
+  --env-file .env livepodcast-generator
+```
+
+The image only needs the base install (no `live` extra, no portaudio) since
+the live/mic modes aren't part of the web UI. If Ollama runs on your host
+machine rather than inside the container, set `OLLAMA_BASE_URL` to
+something reachable from inside Docker (e.g.
+`http://host.docker.internal:11434` on Docker Desktop).
+
+This is a single-user, self-hosted control panel: no auth, no multi-user
+support, in-memory job tracking (jobs don't survive a restart, but finished
+episodes on disk do). Fine for local/trusted-network use; add your own
+auth layer in front of it (e.g. a reverse proxy) before exposing it publicly.
+
 ## LLM backends
 
-Both the script-writer (`cli.py`, `cli_interactive.py`) and the live Q&A
-answerer (`cli_live.py`, `cli_interactive.py`) support two backends, chosen
-with `--llm-backend`:
+The script-writer (`cli.py`, `cli_interactive.py`, and the web control
+panel's `/api/generate`) and the live Q&A answerer (`cli_live.py`,
+`cli_interactive.py`) all support two backends, chosen with `--llm-backend`
+(a form field in the web UI):
 
 | Backend | Flag | Requires | Cost | Notes |
 |---|---|---|---|---|
@@ -264,23 +322,26 @@ Installed automatically via `pyproject.toml`:
 |---|---|---|
 | [pipecat-ai](https://pipecat.ai) | Real-time voice pipeline framework (STT/LLM/TTS orchestration, transports) | BSD-2-Clause |
 | [kokoro](https://github.com/hexgrad/kokoro) | Local TTS engine (wraps the Kokoro-82M weights) | Apache-2.0 |
-| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | Local speech-to-text | MIT |
 | [anthropic](https://github.com/anthropics/anthropic-sdk-python) | Claude API client (optional LLM backend) | MIT |
-| [pyaudio](https://people.csail.mit.edu/hubert/pyaudio/) | Local mic/speaker I/O (via PortAudio) | MIT |
+| [fastapi](https://fastapi.tiangolo.com) | Web control panel backend | MIT |
+| [uvicorn](https://www.uvicorn.org) | ASGI server for the web control panel | BSD-3-Clause |
+| [python-multipart](https://github.com/Kludex/python-multipart) | Multipart form/file upload parsing (FastAPI) | Apache-2.0 |
 | [soundfile](https://github.com/bastibe/python-soundfile) | WAV encoding/decoding | BSD-3-Clause |
 | [numpy](https://numpy.org) | Audio array manipulation | BSD-3-Clause |
 | [requests](https://requests.readthedocs.io) | HTTP for web/Confluence/Ollama fetching | Apache-2.0 |
 | [beautifulsoup4](https://www.crummy.com/software/BeautifulSoup/) | HTML → text extraction | MIT |
 | [pypdf](https://github.com/py-pdf/pypdf) | PDF text extraction | BSD-3-Clause |
 | [python-dotenv](https://github.com/theskumar/python-dotenv) | `.env` loading | BSD-3-Clause |
-| `mlx_whisper` (Apple Silicon only, `[mlx]` extra) | Satisfies a Pipecat import; not otherwise used here | MIT |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (`[live]` extra) | Local speech-to-text, live/interactive modes only | MIT |
+| [pyaudio](https://people.csail.mit.edu/hubert/pyaudio/) (`[live]` extra) | Local mic/speaker I/O (via PortAudio), live/interactive modes only | MIT |
+| `mlx_whisper` (Apple Silicon only, `[mlx]` extra, alongside `[live]`) | Satisfies a Pipecat import; not otherwise used here | MIT |
 
 System dependencies (via Homebrew, not pip):
 
 | Package | Purpose | License |
 |---|---|---|
-| [ffmpeg](https://ffmpeg.org) | MP3 encoding for the batch generator | LGPL/GPL depending on build configuration — Homebrew's default build includes some GPL-licensed codecs (e.g. x264), making the resulting binary effectively GPL. Review [ffmpeg's licensing page](https://ffmpeg.org/legal.html) if this matters for your use case. |
-| [portaudio](http://www.portaudio.com) | Cross-platform audio I/O, used by PyAudio | MIT-style (PortAudio license) |
+| [ffmpeg](https://ffmpeg.org) | MP3 encoding, all modes | LGPL/GPL depending on build configuration — Homebrew's default build includes some GPL-licensed codecs (e.g. x264), making the resulting binary effectively GPL. Review [ffmpeg's licensing page](https://ffmpeg.org/legal.html) if this matters for your use case. |
+| [portaudio](http://www.portaudio.com) | Cross-platform audio I/O, used by PyAudio — only needed for the `[live]` extra (interactive episode / live Q&A modes) | MIT-style (PortAudio license) |
 
 Not a dependency, but relevant to what you'll actually be running:
 

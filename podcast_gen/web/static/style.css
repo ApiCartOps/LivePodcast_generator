@@ -1,0 +1,112 @@
+:root {
+  color-scheme: light dark;
+  --bg: #0b0f1a;
+  --panel-bg: #131a2b;
+  --text: #e7ebff;
+  --muted: #9aa4c4;
+  --accent: #7c9cff;
+  --border: rgba(255, 255, 255, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 0 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+header {
+  padding: 2.5rem 1.5rem 1.5rem;
+  text-align: center;
+}
+
+header h1 { margin: 0 0 0.4rem; font-size: 2rem; }
+.subtitle { color: var(--muted); margin: 0; }
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.panel h2 { margin-top: 0; }
+
+.field-group, .field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+label { font-size: 0.85rem; color: var(--muted); }
+
+input[type="text"], input[type="number"], input[type="file"], textarea, select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.95rem;
+}
+
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); }
+
+button {
+  background: var(--accent);
+  color: #0b0f1a;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.6; cursor: default; }
+
+#refresh-btn {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  margin-bottom: 1rem;
+}
+
+.hint { color: var(--muted); font-size: 0.85rem; }
+
+#job-status { margin-top: 1.5rem; }
+progress { width: 100%; }
+
+#episode-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 1rem; }
+
+.episode {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.episode-title { font-weight: 600; }
+.episode-meta { color: var(--muted); font-size: 0.8rem; margin: 0.2rem 0 0.6rem; }
+.episode audio { width: 100%; margin-bottom: 0.6rem; }
+.episode-actions { display: flex; gap: 1rem; align-items: center; }
+.episode-actions a { color: var(--accent); }
+.episode-actions button {
+  background: transparent;
+  color: #ff8a8a;
+  border: 1px solid #ff8a8a;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.empty { color: var(--muted); list-style: none; }

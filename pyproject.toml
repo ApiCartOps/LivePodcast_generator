@@ -14,17 +14,22 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "pypdf>=4.0.0",
     "python-dotenv>=1.0.0",
-    "pyaudio>=0.2.14",
-    "faster-whisper>=1.0.0",
     "importlib_resources>=6.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
 # Only needed on Apple Silicon: pipecat's whisper module imports mlx_whisper
 # at module load time even when you only use the faster-whisper backend.
 mlx = ["mlx_whisper>=0.4.0"]
+# Only needed for the mic-based live/interactive modes (cli_live, cli_interactive):
+# the batch generator and web control panel don't touch local audio hardware at all.
+live = ["pyaudio>=0.2.14", "faster-whisper>=1.0.0"]
 
 [project.scripts]
 podcast-gen = "podcast_gen.cli:main"
 podcast-gen-live = "podcast_gen.cli_live:main"
 podcast-gen-interactive = "podcast_gen.cli_interactive:main"
+podcast-gen-web = "podcast_gen.cli_web:main"

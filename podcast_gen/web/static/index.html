@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LivePodcast Generator</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>LivePodcast Generator</h1>
+    <p class="subtitle">Turn a document into a host + guest panel podcast episode.</p>
+  </header>
+
+  <main>
+    <section class="panel" id="generate-panel">
+      <h2>Generate an episode</h2>
+      <form id="generate-form">
+        <div class="field-group">
+          <label>Source (pick one)</label>
+          <textarea id="source_text" name="source_text" rows="4" placeholder="Paste text here..."></textarea>
+          <input type="text" id="source_url" name="source_url" placeholder="...or a URL (web page or Confluence)">
+          <input type="file" id="source_file" name="source_file" accept=".txt,.md,.pdf">
+        </div>
+
+        <div class="field-row">
+          <label for="topic">Topic focus (optional)</label>
+          <input type="text" id="topic" name="topic" placeholder="e.g. focus on the migration risks">
+        </div>
+
+        <div class="field-row">
+          <label for="title">Title (optional)</label>
+          <input type="text" id="title" name="title" placeholder="Auto-derived if left blank">
+        </div>
+
+        <div class="field-row">
+          <label for="minutes">Target length (minutes)</label>
+          <input type="number" id="minutes" name="minutes" value="5" min="1" max="60">
+        </div>
+
+        <div class="field-row">
+          <label for="guests">Guests (besides the host)</label>
+          <input type="number" id="guests" name="guests" value="1" min="1" max="8">
+        </div>
+
+        <div class="field-row">
+          <label for="guest_names">Guest names (comma-separated, optional)</label>
+          <input type="text" id="guest_names" name="guest_names" placeholder="e.g. Priya,Marcus">
+        </div>
+
+        <div class="field-row">
+          <label for="voices">Voices override (comma-separated, optional)</label>
+          <input type="text" id="voices" name="voices" placeholder="host,guest1,guest2 -- see voice list below">
+        </div>
+
+        <div class="field-row">
+          <label for="llm_backend">LLM backend</label>
+          <select id="llm_backend" name="llm_backend">
+            <option value="anthropic">Anthropic Claude (needs ANTHROPIC_API_KEY)</option>
+            <option value="ollama">Ollama (local)</option>
+          </select>
+        </div>
+
+        <div class="field-row" id="ollama-model-row" hidden>
+          <label for="ollama_model">Ollama model</label>
+          <input type="text" id="ollama_model" name="ollama_model" value="llama3.1">
+        </div>
+
+        <button type="submit" id="generate-btn">Generate episode</button>
+      </form>
+
+      <p class="hint">Available voices: <span id="voices-list">loading...</span></p>
+
+      <div id="job-status" hidden>
+        <h3>Progress</h3>
+        <p id="job-status-text">Queued...</p>
+        <progress id="job-progress" max="100" value="0"></progress>
+      </div>
+    </section>
+
+    <section class="panel" id="library-panel">
+      <h2>Library</h2>
+      <button id="refresh-btn">Refresh</button>
+      <ul id="episode-list"></ul>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

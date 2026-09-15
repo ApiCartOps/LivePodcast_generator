@@ -1,8 +1,10 @@
 .venv/
-.env
+.git/
+.github/
+.idea/
+.ruff_cache/
 __pycache__/
 *.pyc
 *.mp3
-.idea/
 episodes/
-*.egg-info/
+.env

@@ -22,9 +22,11 @@ jobs:
           sudo apt-get install -y portaudio19-dev ffmpeg
 
       - name: Install Python dependencies
+        # Installs the `live` extra too (pyaudio/faster-whisper), since the
+        # import check below covers the live/interactive modules that need it.
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e ".[live]"
           pip install ruff
 
       - name: Lint
@@ -47,5 +49,12 @@ jobs:
           import podcast_gen.interactive_episode
           import podcast_gen.cli_live
           import podcast_gen.cli_interactive
+          import podcast_gen.cli_web
+          import podcast_gen.web.app
+          import podcast_gen.web.jobs
+          import podcast_gen.web.episodes
+          import podcast_gen.web.routes_jobs
+          import podcast_gen.web.routes_episodes
+          import podcast_gen.web.routes_meta
           print('All modules imported successfully')
           "

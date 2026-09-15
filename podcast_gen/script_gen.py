@@ -74,11 +74,14 @@ def generate_dialogue(
     target_minutes: int = 5,
     backend: str = "anthropic",
     ollama_model: str = OLLAMA_MODEL,
+    ollama_base_url: str = OLLAMA_BASE_URL,
 ) -> list[DialogueLine]:
     """Turn `source_text` into a list of DialogueLine for the given panel.
 
     backend: "anthropic" (Claude, needs ANTHROPIC_API_KEY) or "ollama" (a
-    locally running Ollama server, fully offline).
+    locally running Ollama server, fully offline). `ollama_base_url` lets a
+    caller point at an Ollama server that isn't on localhost (e.g. a web
+    deployment where Ollama runs on a different machine).
     """
     system_prompt = _build_system_prompt(participants)
 
@@ -93,7 +96,9 @@ def generate_dialogue(
     if backend == "anthropic":
         raw = _generate_with_anthropic(system_prompt, user_prompt)
     elif backend == "ollama":
-        raw = _generate_with_ollama(system_prompt, user_prompt, model=ollama_model)
+        raw = _generate_with_ollama(
+            system_prompt, user_prompt, model=ollama_model, base_url=ollama_base_url
+        )
     else:
         raise ValueError(f"Unknown backend: {backend!r} (expected 'anthropic' or 'ollama')")
 
@@ -140,9 +145,11 @@ def _generate_with_anthropic(system_prompt: str, user_prompt: str) -> str:
     return "".join(block.text for block in response.content if block.type == "text").strip()
 
 
-def _generate_with_ollama(system_prompt: str, user_prompt: str, *, model: str) -> str:
+def _generate_with_ollama(
+    system_prompt: str, user_prompt: str, *, model: str, base_url: str = OLLAMA_BASE_URL
+) -> str:
     resp = requests.post(
-        f"{OLLAMA_BASE_URL}/api/chat",
+        f"{base_url}/api/chat",
         json={
             "model": model,
             "messages": [
